@@ -22,15 +22,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_trip_cost'])) {
         $check_stmt->execute();
         $check_stmt->store_result();
         if ($check_stmt->num_rows > 0) {
-            $message = "<div class='message-banner error'>Error: Mayroon nang record ng gastos para sa biyaheng ito. Paki-edit na lang ito mula sa listahan.</div>";
+            $message = "<div class='message-banner error'>Error: A cost record for this trip already exists. Please edit it from the list.</div>";
         } else {
             $sql = "INSERT INTO trip_costs (trip_id, fuel_cost, labor_cost, tolls_cost, other_cost) VALUES (?, ?, ?, ?, ?)";
             $stmt = $conn->prepare($sql);
             $stmt->bind_param("idddd", $trip_id, $fuel_cost, $labor_cost, $tolls_cost, $other_cost);
             if ($stmt->execute()) {
-                $message = "<div class='message-banner success'>Matagumpay na na-save ang gastos sa biyahe!</div>";
+                $message = "<div class='message-banner success'>Trip cost saved successfully!</div>";
             } else {
-                $message = "<div class='message-banner error'>Error sa pag-save ng gastos sa biyahe: " . $conn->error . "</div>";
+                $message = "<div class='message-banner error'>Error saving trip cost: " . $conn->error . "</div>";
             }
             $stmt->close();
         }
@@ -40,9 +40,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_trip_cost'])) {
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("iddddi", $trip_id, $fuel_cost, $labor_cost, $tolls_cost, $other_cost, $id);
          if ($stmt->execute()) {
-            $message = "<div class='message-banner success'>Matagumpay na na-update ang gastos sa biyahe!</div>";
+            $message = "<div class='message-banner success'>Trip cost updated successfully!</div>";
         } else {
-            $message = "<div class='message-banner error'>Error sa pag-update ng gastos sa biyahe: " . $conn->error . "</div>";
+            $message = "<div class='message-banner error'>Error updating trip cost: " . $conn->error . "</div>";
         }
         $stmt->close();
     }
@@ -54,9 +54,9 @@ if (isset($_GET['delete_cost'])) {
     $stmt = $conn->prepare("DELETE FROM trip_costs WHERE id = ?");
     $stmt->bind_param("i", $id);
     if($stmt->execute()){
-        $message = "<div class='message-banner success'>Matagumpay na natanggal ang record ng gastos.</div>";
+        $message = "<div class='message-banner success'>Cost record deleted successfully.</div>";
     } else {
-        $message = "<div class='message-banner error'>Error sa pagtanggal ng record.</div>";
+        $message = "<div class='message-banner error'>Error deleting record.</div>";
     }
     $stmt->close();
 }
@@ -74,13 +74,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_route'])) {
         $stmt = $conn->prepare($sql);
         $stmt->bind_param("ssdss", $route_name, $distance_km, $estimated_time, $estimated_cost, $status);
         if ($stmt->execute()) {
-            $message = "<div class='message-banner success'>Matagumpay na na-save ang ruta!</div>";
+            $message = "<div class='message-banner success'>Route saved successfully!</div>";
         } else {
-            $message = "<div class='message-banner error'>Error sa pag-save ng ruta: " . $conn->error . "</div>";
+            $message = "<div class='message-banner error'>Error saving route: " . $conn->error . "</div>";
         }
         $stmt->close();
     } else {
-        $message = "<div class='message-banner error'>Error: Kulang ang impormasyon ng ruta para i-save.</div>";
+        $message = "<div class='message-banner error'>Error: Incomplete route information to save.</div>";
     }
 }
 
@@ -210,7 +210,7 @@ $daily_costs_table_result = $conn->query("
     <div class="table-section-2">
         <h3>Daily Cost Breakdown Engine</h3>
         <table>
-            <thead><tr><th>Petsa</th><th>Kabuuang Gastos sa Fuel</th><th>Kabuuang Gastos sa Labor</th><th>Kabuuang Gastos sa Tolls</th><th>Grand Total</th></tr></thead>
+            <thead><tr><th>Date</th><th>Total Fuel Cost</th><th>Total Labor Cost</th><th>Total Tolls Cost</th><th>Grand Total</th></tr></thead>
             <tbody>
                 <?php if ($daily_costs_table_result && $daily_costs_table_result->num_rows > 0): ?>
                     <?php while($row = $daily_costs_table_result->fetch_assoc()): ?>
@@ -223,7 +223,7 @@ $daily_costs_table_result = $conn->query("
                     </tr>
                     <?php endwhile; ?>
                 <?php else: ?>
-                    <tr><td colspan="5">Walang nakitang data ng pang-araw-araw na gastos.</td></tr>
+                    <tr><td colspan="5">No daily cost data found.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -246,12 +246,12 @@ $daily_costs_table_result = $conn->query("
                         <td><strong>₱<?php echo number_format($row['total_cost'], 2); ?></strong></td>
                         <td>
                             <button class="btn btn-warning btn-sm editCostBtn" data-id="<?php echo $row['id']; ?>" data-trip_id="<?php echo $row['trip_id']; ?>" data-fuel_cost="<?php echo $row['fuel_cost']; ?>" data-labor_cost="<?php echo $row['labor_cost']; ?>" data-tolls_cost="<?php echo $row['tolls_cost']; ?>" data-other_cost="<?php echo $row['other_cost']; ?>">Edit</button>
-                            <a href="TCAO.php?delete_cost=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Sigurado ka ba?');">Delete</a>
+                            <a href="TCAO.php?delete_cost=<?php echo $row['id']; ?>" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure?');">Delete</a>
                         </td>
                     </tr>
                     <?php endwhile; ?>
                 <?php else: ?>
-                    <tr><td colspan="7">Walang nakitang data ng gastos sa bawat biyahe.</td></tr>
+                    <tr><td colspan="7">No per-trip cost data found.</td></tr>
                 <?php endif; ?>
             </tbody>
         </table>
@@ -261,29 +261,29 @@ $daily_costs_table_result = $conn->query("
     <div class="table-section-2">
       <h3>Route Optimizer</h3>
       <div class="card" style="margin-bottom: 1.5rem;">
-        <h4>Hanapin ang Pinakamahusay na Ruta</h4>
+        <h4>Find the Best Route</h4>
         <div class="form-group">
-            <label for="startLocation">Simulang Lokasyon</label>
+            <label for="startLocation">Start Location</label>
             <input type="text" id="startLocation" class="form-control" placeholder="e.g., Quezon City, Metro Manila">
         </div>
         <div class="form-group">
-            <label for="endLocation">Destinasyon</label>
+            <label for="endLocation">Destination</label>
             <input type="text" id="endLocation" class="form-control" placeholder="e.g., Baguio City, Benguet">
         </div>
         <button id="findRouteBtn" class="btn btn-primary">Find Optimal Route</button>
         <div id="route-output" style="margin-top: 1rem; display: none;">
-            <h4>Mga Detalye ng Inirekumendang Ruta:</h4>
-            <p><strong>Distansya:</strong> <span id="routeDistance"></span> km</p>
-            <p><strong>Tagal:</strong> <span id="routeDuration"></span></p>
-            <p><strong>Tantiyang Gastos:</strong> ₱<span id="routeCost"></span></p>
-            <button id="viewRouteMapBtn" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">Tingnan ang Ruta sa Mapa</button>
+            <h4>Recommended Route Details:</h4>
+            <p><strong>Distance:</strong> <span id="routeDistance"></span> km</p>
+            <p><strong>Duration:</strong> <span id="routeDuration"></span></p>
+            <p><strong>Estimated Cost:</strong> ₱<span id="routeCost"></span></p>
+            <button id="viewRouteMapBtn" class="btn btn-info btn-sm" style="margin-top: 0.5rem;">View Route on Map</button>
             
             <form action="TCAO.php" method="POST" style="margin-top: 1rem; border-top: 1px solid #ddd; padding-top: 1rem;" class="dark-mode-form-border">
                 <input type="hidden" name="distance_km" id="hiddenDistance">
                 <input type="hidden" name="estimated_time" id="hiddenDuration">
                 <input type="hidden" name="estimated_cost" id="hiddenCost">
                 <div class="form-group">
-                    <label for="routeName">I-save ang ruta na ito na may pangalan:</label>
+                    <label for="routeName">Save this route with name:</label>
                     <input type="text" name="route_name" id="routeName" class="form-control" placeholder="e.g., Manila to Baguio (Day Route)" required>
                 </div>
                 <button type="submit" name="save_route" class="btn btn-success">Save Route to Logs</button>
@@ -310,7 +310,7 @@ $daily_costs_table_result = $conn->query("
                 </tr>
                 <?php endwhile; ?>
             <?php else: ?>
-                <tr><td colspan="6">Walang nakitang data ng ruta.</td></tr>
+                <tr><td colspan="6">No route data found.</td></tr>
            <?php endif; ?>
         </tbody>
       </table>
@@ -351,8 +351,8 @@ $daily_costs_table_result = $conn->query("
         modal.style.display = "block";
     }
 
-    document.getElementById('kpiBtn').onclick = () => showModal("KPI & Report Generator", "<p>Dito ipapakita ang mga ulat tungkol sa performance ng mga biyahe, tulad ng on-time delivery rates, average cost per trip, at fuel efficiency. Makakatulong ito sa paggawa ng desisyon para mapabuti ang operasyon.</p>");
-    document.getElementById('insightsBtn').onclick = () => showModal("Suggestions & Insights", "<p>Batay sa historical data, magbibigay ang AI ng mga suhestiyon dito. Halimbawa, 'Napansin namin na mas mataas ng 15% ang gastos sa gasolina tuwing Biyernes. Isaalang-alang ang pag-adjust ng schedule.' o 'Ang Route A ay palaging may traffic tuwing umaga. Subukan ang Route C bilang alternatibo.'<p>");
+    document.getElementById('kpiBtn').onclick = () => showModal("KPI & Report Generator", "<p>Reports about trip performance, such as on-time delivery rates, average cost per trip, and fuel efficiency, will be shown here. This will help in making decisions to improve operations.</p>");
+    document.getElementById('insightsBtn').onclick = () => showModal("Suggestions & Insights", "<p>Based on historical data, the AI will provide suggestions here. For example, 'We noticed that fuel costs are 15% higher on Fridays. Consider adjusting the schedule.' or 'Route A always has traffic in the morning. Try Route C as an alternative.'<p>");
 
 
     // --- Add/Edit Trip Cost Modal Logic ---
@@ -396,7 +396,7 @@ $daily_costs_table_result = $conn->query("
 
     async function trainCostModel() {
         if (predictionData.length < 2) {
-            document.getElementById('ai-status').textContent = 'Kulang ang data para sa AI model.';
+            document.getElementById('ai-status').textContent = 'Not enough data for the AI model.';
             return;
         }
         tf.util.shuffle(predictionData);
@@ -408,7 +408,7 @@ $daily_costs_table_result = $conn->query("
         costModel.add(tf.layers.dense({ inputShape: [2], units: 1 }));
         costModel.compile({ optimizer: 'adam', loss: 'meanSquaredError' });
         await costModel.fit(featureTensor, labelTensor, { epochs: 50 });
-        document.getElementById('ai-status').textContent = 'Handa na ang AI Model.';
+        document.getElementById('ai-status').textContent = 'AI Model is ready.';
         document.getElementById('ai-predictor-form').style.display = 'block';
     }
     
@@ -431,7 +431,7 @@ $daily_costs_table_result = $conn->query("
     async function trainAndPredictDaily() {
         const statusEl = document.getElementById('daily-prediction-loader');
         if (dailyCostData.length < 2) {
-            statusEl.textContent = 'Kulang ang daily data para sa AI model.';
+            statusEl.textContent = 'Not enough daily data for the AI model.';
             return;
         }
         const days = dailyCostData.map(d => d.day);
@@ -461,7 +461,7 @@ $daily_costs_table_result = $conn->query("
         const start = document.getElementById('startLocation').value;
         const end = document.getElementById('endLocation').value;
         if (!start || !end) {
-            alert('Pakilagay ang simula at dulo ng lokasyon.');
+            alert('Please enter the start and end locations.');
             return;
         }
         findRouteBtn.textContent = 'Calculating...';
@@ -474,7 +474,7 @@ $daily_costs_table_result = $conn->query("
             const startData = await startResponse.json();
             const endData = await endResponse.json();
             if (startData.length === 0 || endData.length === 0) {
-                throw new Error('Hindi mahanap ang isa o parehong lokasyon. Paki-specify pa.');
+                throw new Error('Could not find one or both locations. Please be more specific.');
             }
             const startCoords = { lat: startData[0].lat, lon: startData[0].lon };
             const endCoords = { lat: endData[0].lat, lon: endData[0].lon };
@@ -484,7 +484,7 @@ $daily_costs_table_result = $conn->query("
             const directionsResponse = await fetch(directionsUrl);
             const directionsData = await directionsResponse.json();
             if (directionsData.code !== 'Ok' || directionsData.routes.length === 0) {
-                 throw new Error('Walang rutang nahanap sa pagitan ng mga lokasyong ito.');
+                 throw new Error('No route found between these locations.');
             }
             
             const route = directionsData.routes[0];
@@ -545,4 +545,3 @@ $daily_costs_table_result = $conn->query("
   </script>
 </body>
 </html>
-

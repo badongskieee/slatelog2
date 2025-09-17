@@ -4,6 +4,13 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
     header("location: login.php");
     exit;
 }
+
+// Role-based Redirect: Kung driver, sa mobile app ang punta.
+if ($_SESSION['role'] === 'driver') {
+    header("location: mobile_app.php");
+    exit;
+}
+
 require_once 'db_connect.php';
 
 // Fetch Dashboard Stats
@@ -11,7 +18,6 @@ $successful_deliveries = $conn->query("SELECT COUNT(*) as count FROM trips WHERE
 $active_vehicles = $conn->query("SELECT COUNT(*) as count FROM vehicles WHERE status = 'En Route'")->fetch_assoc()['count'];
 $recent_trips = $conn->query("SELECT t.trip_code, t.destination, t.status, v.type FROM trips t JOIN vehicles v ON t.vehicle_id = v.id ORDER BY t.pickup_time DESC LIMIT 5");
 
-// Fetch MONTHLY historical data for the top card
 $historical_query = $conn->query("
     SELECT SUM(tc.total_cost) as monthly_cost
     FROM trip_costs tc
@@ -20,7 +26,6 @@ $historical_query = $conn->query("
 ");
 $current_month_cost = $historical_query->fetch_assoc()['monthly_cost'] ?? 0;
 
-// Fetch DAILY aggregated costs for AI analysis AND the daily chart
 $daily_costs_query = $conn->query("
     SELECT
         DATE(t.pickup_time) as trip_date,
@@ -31,16 +36,14 @@ $daily_costs_query = $conn->query("
     ORDER BY trip_date ASC
 ");
 $daily_costs_for_ai = [];
-$daily_chart_data = []; // Data specifically for the daily graph
+$daily_chart_data = []; 
 if ($daily_costs_query) {
     $day_index = 1;
     while ($row = $daily_costs_query->fetch_assoc()) {
-        // This is for the AI model to predict tomorrow's cost
         $daily_costs_for_ai[] = [
             "day" => $day_index++,
             "total" => (float)$row['grand_total']
         ];
-        // This is for displaying the daily data on the chart
         $daily_chart_data[] = [
             "label" => date("M d", strtotime($row['trip_date'])),
             "cost" => (float)$row['grand_total']
@@ -50,7 +53,6 @@ if ($daily_costs_query) {
 $daily_costs_json = json_encode($daily_costs_for_ai);
 $daily_chart_json = json_encode($daily_chart_data);
 
-// Fetch the cost from the latest day with recorded trips
 $latest_date_query = $conn->query("SELECT MAX(DATE(t.pickup_time)) as latest_date FROM trips t JOIN trip_costs tc ON t.id = tc.trip_id");
 $latest_date_row = $latest_date_query->fetch_assoc();
 $latest_date = $latest_date_row['latest_date'] ?? null;
@@ -69,14 +71,18 @@ if ($latest_date) {
     $latest_daily_cost = $result->fetch_assoc()['total'] ?? 0;
 }
 
-
-// Fetch live tracking data for the map
+// UPDATED QUERY to get initial locations WITH trip_id
 $tracking_data_query = $conn->query("
-    SELECT v.type, v.model, d.name as driver_name, tl.latitude, tl.longitude
+    SELECT t.id as trip_id, v.type, v.model, d.name as driver_name, tl.latitude, tl.longitude
     FROM tracking_log tl
     JOIN trips t ON tl.trip_id = t.id
     JOIN vehicles v ON t.vehicle_id = v.id
     JOIN drivers d ON t.driver_id = d.id
+    INNER JOIN (
+        SELECT trip_id, MAX(log_time) AS max_log_time
+        FROM tracking_log
+        GROUP BY trip_id
+    ) latest_log ON tl.trip_id = latest_log.trip_id AND tl.log_time = latest_log.max_log_time
     WHERE t.status = 'En Route'
 ");
 $locations = [];
@@ -86,7 +92,6 @@ if ($tracking_data_query) {
     }
 }
 $locations_json = json_encode($locations);
-
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -95,22 +100,30 @@ $locations_json = json_encode($locations);
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Admin Dashboard | LOGISTICS II</title>
   <link rel="stylesheet" href="style.css">
-  <!-- TensorFlow.js and Chart.js Libraries -->
   <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-  <!-- Leaflet.js for Maps -->
-  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <!-- ADDED SCRIPTS FOR LIVE TRACKING -->
+  <script src="https://unpkg.com/leaflet.marker.slideto@0.2.0/Leaflet.Marker.SlideTo.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 </head>
 <body>
   <div class="sidebar" id="sidebar">
     <div class="logo"><img src="logo.png" alt="SLATE Logo"></div>
     <div class="system-name">LOGISTIC 2 </div>
+    
+    <?php $role = $_SESSION['role']; ?>
     <a href="landpage.php" class="active">Dashboard</a>
-    <a href="FVM.php">Fleet & Vehicle Management (FVM)</a>
-    <a href="VRDS.php">Vehicle Reservation & Dispatch System (VRDS)</a>
-    <a href="DTPM.php">Driver and Trip Performance Monitoring</a>
-    <a href="TCAO.php">Transport Cost Analysis & Optimization (TCAO)</a>
+
+    <?php if ($role === 'admin' || $role === 'staff'): ?>
+        <a href="FVM.php">Fleet & Vehicle Management (FVM)</a>
+        <a href="VRDS.php">Vehicle Reservation & Dispatch System (VRDS)</a>
+        <a href="DTPM.php">Driver and Trip Performance Monitoring</a>
+        <a href="TCAO.php">Transport Cost Analysis & Optimization (TCAO)</a>
+    <?php endif; ?>
+    
     <a href="MA.php">Mobile Fleet Command App</a>
     <a href="logout.php">Logout</a>
   </div>
@@ -139,7 +152,6 @@ $locations_json = json_encode($locations);
         </div>
       </div>
 
-      <!-- Live Map Section -->
       <div class="card map-container-full">
         <h3>Live Vehicle Map</h3>
         <div id="map"></div>
@@ -187,40 +199,73 @@ $locations_json = json_encode($locations);
     </section>
   </div>
 
-  <!-- Pop-up Modal HTML -->
   <div id="tripDetailsModal" class="modal">
     <div class="modal-content">
       <span class="close-button">&times;</span>
       <h2 id="modalTitle">Trip Details</h2>
       <div id="modalBody">
-        <!-- Trip details will be populated by JavaScript -->
       </div>
     </div>
   </div>
 
-  <script>
+<script>
+    // Standard scripts (theme toggle, hamburger)
     document.getElementById('themeToggle').addEventListener('change', function() { document.body.classList.toggle('dark-mode', this.checked); });
     document.getElementById('hamburger').addEventListener('click', function() {
-      const sidebar = document.getElementById('sidebar');
-      const mainContent = document.getElementById('mainContent');
-      if (window.innerWidth <= 992) { sidebar.classList.toggle('show'); } 
-      else { sidebar.classList.toggle('collapsed'); mainContent.classList.toggle('expanded'); }
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('mainContent');
+    if (window.innerWidth <= 992) { sidebar.classList.toggle('show'); } 
+    else { sidebar.classList.toggle('collapsed'); mainContent.classList.toggle('expanded'); }
     });
 
-    // --- Leaflet Map Initialization ---
-    const map = L.map('map').setView([12.8797, 121.7740], 5); // Philippines center
+    // --- BAGONG JAVASCRIPT PARA SA LIVE TRACKING SA DASHBOARD ---
+    
+    // --- START OF FIREBASE CONFIG ---
+    // !! MAHALAGA: PALITAN ITO NG IYONG SARILING FIREBASE CONFIG !!
+     const firebaseConfig = {
+    apiKey: "AIzaSyCB0_OYZXX3K-AxKeHnVlYMv2wZ_81FeYM",
+    authDomain: "slate49-cde60.firebaseapp.com",
+    databaseURL: "https://slate49-cde60-default-rtdb.firebaseio.com",
+    projectId: "slate49-cde60",
+    storageBucket: "slate49-cde60.firebasestorage.app",
+    messagingSenderId: "809390854040",
+    appId: "1:809390854040:web:f7f77333bb0ac7ab73e5ed",
+    measurementId: "G-FNW2WP3351"
+  };
+    // --- END OF FIREBASE CONFIG ---
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
+    const markers = {};
+
+    const map = L.map('map').setView([12.8797, 121.7740], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
 
+    // Initial locations from PHP
     const locations = <?php echo $locations_json; ?>;
     locations.forEach(loc => {
         const popupContent = `<h3>${loc.type} ${loc.model}</h3><p>Driver: ${loc.driver_name}</p>`;
-        L.marker([loc.latitude, loc.longitude]).addTo(map)
+        const marker = L.marker([loc.latitude, loc.longitude]).addTo(map)
             .bindPopup(popupContent);
+        
+        marker.options.duration = 2000;
+        markers[loc.trip_id] = marker; // Use trip_id from the updated PHP query
     });
 
-    // --- AI Prediction for DAILY forecast VALUE ---
+    // Firebase listener for real-time updates
+    const trackingRef = database.ref('live_tracking');
+    trackingRef.on('child_changed', (snapshot) => {
+        const tripId = snapshot.key;
+        const locationData = snapshot.val();
+        if (markers[tripId]) {
+            const marker = markers[tripId];
+            const newLatLng = [locationData.lat, locationData.lng];
+            marker.slideTo(newLatLng, { duration: 2000 });
+        }
+    });
+    
+    // AI and Chart scripts (walang binago dito)
     const dailyCostDataForAI = <?php echo $daily_costs_json; ?>;
     async function trainAndPredictDaily() {
         const statusEl = document.getElementById('daily-prediction-loader-card');
@@ -245,41 +290,14 @@ $locations_json = json_encode($locations);
         resultEl.style.display = 'block';
     }
 
-    // --- Setup for DAILY chart ---
     const dailyChartData = <?php echo $daily_chart_json; ?>;
     function setupDailyChart() {
-        if (dailyChartData.length === 0) {
-            return;
-        }
+        if (dailyChartData.length === 0) return;
         const chartLabels = dailyChartData.map(d => d.label);
         const chartCosts = dailyChartData.map(d => d.cost);
-
         new Chart(document.getElementById('costChart'), {
-            type: 'line',
-            data: {
-                labels: chartLabels,
-                datasets: [{
-                    label: 'Daily Cost',
-                    data: chartCosts,
-                    borderColor: 'rgba(78, 115, 223, 1)',
-                    backgroundColor: 'rgba(78, 115, 223, 0.1)',
-                    fill: true,
-                    tension: 0.2
-                }]
-            },
-            options: { 
-                responsive: true, 
-                maintainAspectRatio: false,
-                scales: {
-                    y: {
-                        ticks: {
-                            callback: function(value, index, values) {
-                                return '₱' + value.toLocaleString();
-                            }
-                        }
-                    }
-                }
-            }
+            type: 'line', data: { labels: chartLabels, datasets: [{ label: 'Daily Cost', data: chartCosts, borderColor: 'rgba(78, 115, 223, 1)', backgroundColor: 'rgba(78, 115, 223, 0.1)', fill: true, tension: 0.2 }] },
+            options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: function(value) { return '₱' + value.toLocaleString(); } } } } }
         });
     }
     
@@ -288,7 +306,7 @@ $locations_json = json_encode($locations);
         setupDailyChart();
     };
 
-    // --- JavaScript for Pop-up Modal ---
+    // Trip details modal script (walang binago dito)
     const tripModal = document.getElementById('tripDetailsModal');
     const modalTitle = tripModal.querySelector('#modalTitle');
     const modalBody = tripModal.querySelector('#modalBody');
@@ -312,7 +330,6 @@ $locations_json = json_encode($locations);
             tripModal.style.display = 'block';
         });
     });
-  </script>
+</script>
 </body>
 </html>
-
