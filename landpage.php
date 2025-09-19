@@ -139,61 +139,89 @@ $locations_json = json_encode($locations);
     </div>
 
     <section class="logistics-section">
-      <h2>Logistics Overview</h2>
-      <div class="dashboard-cards">
-        <div class="card"><h3>Successful Deliveries</h3><div class="stat-value"><?php echo $successful_deliveries; ?></div><div class="stat-label">All Time</div></div>
-        <div class="card"><h3>Active Vehicles</h3><div class="stat-value"><?php echo $active_vehicles; ?></div><div class="stat-label">Currently En Route</div></div>
-        <div class="card"><h3>Trip Cost This Month</h3><div class="stat-value">₱<?php echo number_format($current_month_cost, 2); ?></div><div class="stat-label">Current Month</div></div>
-        <div class="card">
-            <h3>AI Forecast for Tomorrow</h3>
-            <div id="daily-prediction-loader-card" class="stat-label">Calculating...</div>
-            <div id="daily-prediction-result-card" class="stat-value" style="display:none; color: var(--success-color);"></div>
-            <div class="stat-label">Predicted Total Cost</div>
-        </div>
-      </div>
-
-      <div class="card map-container-full">
-        <h3>Live Vehicle Map</h3>
-        <div id="map"></div>
-      </div>
-
-      <div class="dashboard-grid-bottom">
-        <div class="ai-section card">
-            <h3>AI-Powered Analytics</h3>
+      <div class="dashboard-main-grid">
+        
+        <div class="dashboard-stats">
+          <div class="dashboard-cards">
+            <!-- Card 1: Successful Deliveries -->
             <div class="card">
-                <h3>Latest Daily Cost</h3>
-                <div class="stat-value">₱<?php echo number_format($latest_daily_cost, 2); ?></div>
-                <div class="stat-label"><?php echo $latest_date ? date("F d, Y", strtotime($latest_date)) : 'No data available'; ?></div>
+              <div class="stat-icon icon-deliveries">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16"><path d="M11.742 10.344a6.5 6.5 0 1 0-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 0 0 1.415-1.414l-3.85-3.85a1.007 1.007 0 0 0-.115-.1zM12 6.5a5.5 5.5 0 1 1-11 0 5.5 5.5 0 0 1 11 0z"/><path fill-rule="evenodd" d="M10.146 8.146a.5.5 0 0 1 0 .708l-3 3a.5.5 0 0 1-.708 0l-1.5-1.5a.5.5 0 1 1 .708-.708L7 10.793l2.646-2.647a.5.5 0 0 1 .708 0z"/></svg>
+              </div>
+              <div class="stat-details">
+                <h3>Successful Deliveries</h3>
+                <div class="stat-value"><?php echo $successful_deliveries; ?></div>
+              </div>
             </div>
-            <div class="card" style="margin-top: 1.5rem;">
+            <!-- Card 2: Active Vehicles -->
+            <div class="card">
+              <div class="stat-icon icon-vehicles">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" viewBox="0 0 16 16"><path d="M0 3.5A1.5 1.5 0 0 1 1.5 2h9A1.5 1.5 0 0 1 12 3.5V5h1.02a1.5 1.5 0 0 1 1.17.563l1.481 1.85a1.5 1.5 0 0 1 .329.938V10.5a1.5 1.5 0 0 1-1.5 1.5H14a2 2 0 1 1-4 0H5a2 2 0 1 1-4 0H1.5a1.5 1.5 0 0 1-1.5-1.5v-7zM12 5V3.5a.5.5 0 0 0-.5-.5h-9a.5.5 0 0 0-.5.5V5h10zm-6 8a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm10 0a1 1 0 1 0 0-2 1 1 0 0 0 0 2zM.5 10.5a.5.5 0 0 0 .5.5H2a1 1 0 0 1 2 0h5a1 1 0 0 1 2 0h1.5a.5.5 0 0 0 .5-.5V8.36a.5.5 0 0 0-.11-.312l-1.48-1.85A.5.5 0 0 0 13.02 6H12V5H1v5.5z"/></svg>
+              </div>
+              <div class="stat-details">
+                <h3>Active Vehicles</h3>
+                <div class="stat-value"><?php echo $active_vehicles; ?></div>
+              </div>
+            </div>
+            <!-- Card 3: Trip Cost -->
+            <div class="card">
+              <div class="stat-icon icon-cost">
+                 <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-wallet2" viewBox="0 0 16 16"><path d="M12.136.326A1.5 1.5 0 0 1 14 1.78V3h.5A1.5 1.5 0 0 1 16 4.5v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 0 12.5v-8A1.5 1.5 0 0 1 1.5 3H2V1.78a1.5 1.5 0 0 1 1.864-1.454l1.752.438a.5.5 0 0 1 .382.493V3h5.302V2.215a.5.5 0 0 1 .382-.493l1.752-.438zM2 4.5a.5.5 0 0 0-.5.5v8a.5.5 0 0 0 .5.5h13a.5.5 0 0 0 .5-.5v-8a.5.5 0 0 0-.5-.5h-13z"/></svg>
+              </div>
+              <div class="stat-details">
+                <h3>Cost This Month</h3>
+                <div class="stat-value">₱<?php echo number_format($current_month_cost, 2); ?></div>
+              </div>
+            </div>
+            <!-- Card 4: AI Forecast -->
+            <div class="card">
+              <div class="stat-icon icon-ai">
+                <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" fill="currentColor" class="bi bi-graph-up-arrow" viewBox="0 0 16 16"><path fill-rule="evenodd" d="M0 0h1v15h15v1H0V0zm10 3.5a.5.5 0 0 1 .5-.5h4a.5.5 0 0 1 .5.5v4a.5.5 0 0 1-1 0V4.9l-3.613 4.417a.5.5 0 0 1-.74.037L7.06 6.767l-3.656 5.027a.5.5 0 0 1-.808-.588l4-5.5a.5.5 0 0 1 .758-.06l2.609 2.61L13.445 4H10.5a.5.5 0 0 1-.5-.5z"/></svg>
+              </div>
+              <div class="stat-details">
+                <h3>AI Forecast</h3>
+                <div id="daily-prediction-loader-card" class="stat-label">Calculating...</div>
+                <div id="daily-prediction-result-card" class="stat-value" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card dashboard-map">
+          <h3>Live Vehicle Map</h3>
+          <div id="map"></div>
+        </div>
+
+        <div class="dashboard-cards-sidebar">
+            <div class="table-section-2 card">
+              <h3>Recent Trips</h3>
+              <table>
+                  <thead><tr><th>Trip Code</th><th>Vehicle</th><th>Destination</th><th>Status</th></tr></thead>
+                  <tbody>
+                      <?php if ($recent_trips->num_rows > 0): ?>
+                          <?php while($trip = $recent_trips->fetch_assoc()): ?>
+                          <tr class="clickable-row" 
+                              data-trip_code="<?php echo htmlspecialchars($trip['trip_code']); ?>"
+                              data-vehicle_type="<?php echo htmlspecialchars($trip['type']); ?>"
+                              data-destination="<?php echo htmlspecialchars($trip['destination']); ?>"
+                              data-status="<?php echo htmlspecialchars($trip['status']); ?>">
+                              <td><?php echo htmlspecialchars($trip['trip_code']); ?></td>
+                              <td><?php echo htmlspecialchars($trip['type']); ?></td>
+                              <td><?php echo htmlspecialchars($trip['destination']); ?></td>
+                              <td><span class="status-badge status-<?php echo strtolower(str_replace(' ', '.', $trip['status'])); ?>"><?php echo htmlspecialchars($trip['status']); ?></span></td>
+                          </tr>
+                          <?php endwhile; ?>
+                      <?php else: ?>
+                          <tr><td colspan="4">No recent trips found.</td></tr>
+                      <?php endif; ?>
+                  </tbody>
+              </table>
+            </div>
+
+             <div class="ai-section card" style="margin-top: 1.5rem;">
                 <h3>Daily Trip Cost Trend</h3>
                 <div style="height: 250px;"><canvas id="costChart"></canvas></div>
             </div>
-        </div>
-
-        <div class="table-section-2">
-          <h3>Recent Trips</h3>
-          <table>
-              <thead><tr><th>Trip Code</th><th>Vehicle Type</th><th>Destination</th><th>Status</th></tr></thead>
-              <tbody>
-                  <?php if ($recent_trips->num_rows > 0): ?>
-                      <?php while($trip = $recent_trips->fetch_assoc()): ?>
-                      <tr class="clickable-row" 
-                          data-trip_code="<?php echo htmlspecialchars($trip['trip_code']); ?>"
-                          data-vehicle_type="<?php echo htmlspecialchars($trip['type']); ?>"
-                          data-destination="<?php echo htmlspecialchars($trip['destination']); ?>"
-                          data-status="<?php echo htmlspecialchars($trip['status']); ?>">
-                          <td><?php echo htmlspecialchars($trip['trip_code']); ?></td>
-                          <td><?php echo htmlspecialchars($trip['type']); ?></td>
-                          <td><?php echo htmlspecialchars($trip['destination']); ?></td>
-                          <td><span class="status-badge status-<?php echo strtolower(str_replace(' ', '.', $trip['status'])); ?>"><?php echo htmlspecialchars($trip['status']); ?></span></td>
-                      </tr>
-                      <?php endwhile; ?>
-                  <?php else: ?>
-                      <tr><td colspan="4">No recent trips found.</td></tr>
-                  <?php endif; ?>
-              </tbody>
-          </table>
         </div>
       </div>
     </section>
@@ -209,7 +237,6 @@ $locations_json = json_encode($locations);
   </div>
 
 <script>
-    // Standard scripts (theme toggle, hamburger)
     document.getElementById('themeToggle').addEventListener('change', function() { document.body.classList.toggle('dark-mode', this.checked); });
     document.getElementById('hamburger').addEventListener('click', function() {
     const sidebar = document.getElementById('sidebar');
@@ -218,11 +245,8 @@ $locations_json = json_encode($locations);
     else { sidebar.classList.toggle('collapsed'); mainContent.classList.toggle('expanded'); }
     });
 
-    // --- BAGONG JAVASCRIPT PARA SA LIVE TRACKING SA DASHBOARD ---
-    
-    // --- START OF FIREBASE CONFIG ---
-    // !! MAHALAGA: PALITAN ITO NG IYONG SARILING FIREBASE CONFIG !!
-     const firebaseConfig = {
+    // --- LIVE TRACKING MAP ---
+    const firebaseConfig = {
     apiKey: "AIzaSyCB0_OYZXX3K-AxKeHnVlYMv2wZ_81FeYM",
     authDomain: "slate49-cde60.firebaseapp.com",
     databaseURL: "https://slate49-cde60-default-rtdb.firebaseio.com",
@@ -232,12 +256,11 @@ $locations_json = json_encode($locations);
     appId: "1:809390854040:web:f7f77333bb0ac7ab73e5ed",
     measurementId: "G-FNW2WP3351"
   };
-    // --- END OF FIREBASE CONFIG ---
     firebase.initializeApp(firebaseConfig);
     const database = firebase.database();
     const markers = {};
 
-    const map = L.map('map').setView([12.8797, 121.7740], 5);
+    const map = L.map('map').setView([12.8797, 121.7740], 6); // Centered on PH
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
     }).addTo(map);
@@ -246,11 +269,10 @@ $locations_json = json_encode($locations);
     const locations = <?php echo $locations_json; ?>;
     locations.forEach(loc => {
         const popupContent = `<h3>${loc.type} ${loc.model}</h3><p>Driver: ${loc.driver_name}</p>`;
-        const marker = L.marker([loc.latitude, loc.longitude]).addTo(map)
-            .bindPopup(popupContent);
+        const marker = L.marker([loc.latitude, loc.longitude]).addTo(map).bindPopup(popupContent);
         
         marker.options.duration = 2000;
-        markers[loc.trip_id] = marker; // Use trip_id from the updated PHP query
+        markers[loc.trip_id] = marker;
     });
 
     // Firebase listener for real-time updates
@@ -264,11 +286,13 @@ $locations_json = json_encode($locations);
             marker.slideTo(newLatLng, { duration: 2000 });
         }
     });
-    
-    // AI and Chart scripts (walang binago dito)
+
+    // --- AI and Chart scripts ---
     const dailyCostDataForAI = <?php echo $daily_costs_json; ?>;
     async function trainAndPredictDaily() {
         const statusEl = document.getElementById('daily-prediction-loader-card');
+        const resultEl = document.getElementById('daily-prediction-result-card');
+
         if (dailyCostDataForAI.length < 2) {
             statusEl.textContent = 'Not enough data.';
             return;
@@ -280,12 +304,14 @@ $locations_json = json_encode($locations);
         const model = tf.sequential();
         model.add(tf.layers.dense({ units: 1, inputShape: [1] }));
         model.compile({ loss: 'meanSquaredError', optimizer: tf.train.adam(0.1) });
+        
         await model.fit(xs, ys, { epochs: 200 });
+
         const nextDayIndex = days.length + 1;
         const prediction = model.predict(tf.tensor1d([nextDayIndex]));
         const predictedCost = prediction.dataSync()[0];
+
         statusEl.style.display = 'none';
-        const resultEl = document.getElementById('daily-prediction-result-card');
         resultEl.textContent = '₱' + parseFloat(predictedCost).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         resultEl.style.display = 'block';
     }
@@ -296,7 +322,7 @@ $locations_json = json_encode($locations);
         const chartLabels = dailyChartData.map(d => d.label);
         const chartCosts = dailyChartData.map(d => d.cost);
         new Chart(document.getElementById('costChart'), {
-            type: 'line', data: { labels: chartLabels, datasets: [{ label: 'Daily Cost', data: chartCosts, borderColor: 'rgba(78, 115, 223, 1)', backgroundColor: 'rgba(78, 115, 223, 0.1)', fill: true, tension: 0.2 }] },
+            type: 'line', data: { labels: chartLabels, datasets: [{ label: 'Daily Cost', data: chartCosts, borderColor: 'rgba(78, 115, 223, 1)', backgroundColor: 'rgba(78, 115, 223, 0.1)', fill: true, tension: 0.3 }] },
             options: { responsive: true, maintainAspectRatio: false, scales: { y: { ticks: { callback: function(value) { return '₱' + value.toLocaleString(); } } } } }
         });
     }
@@ -304,9 +330,10 @@ $locations_json = json_encode($locations);
     window.onload = () => {
         trainAndPredictDaily();
         setupDailyChart();
+        setTimeout(() => map.invalidateSize(), 200); // Invalidate map size after a short delay
     };
 
-    // Trip details modal script (walang binago dito)
+    // --- Trip details modal script ---
     const tripModal = document.getElementById('tripDetailsModal');
     const modalTitle = tripModal.querySelector('#modalTitle');
     const modalBody = tripModal.querySelector('#modalBody');

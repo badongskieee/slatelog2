@@ -1,353 +1,199 @@
 <?php
 session_start();
-if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true) {
+if (!isset($_SESSION['loggedin']) || $_SESSION['loggedin'] !== true || $_SESSION['role'] !== 'driver') {
     header('Location: login.php');
     exit;
 }
 require_once 'db_connect.php';
 
-// --- Data Fetching (Reusing logic from MA.php) ---
 $user_id = $_SESSION['id'];
-$user_role = $_SESSION['role'];
-$admin_id = 1; // Assuming admin user ID is 1
-
-// --- Fetch data for the logged-in user ---
-$driver_id_result = $conn->query("SELECT id FROM drivers WHERE user_id = $user_id");
-$driver_id = $driver_id_result->num_rows > 0 ? $driver_id_result->fetch_assoc()['id'] : null;
-
-// Admin Data
-$active_vehicles = $conn->query("SELECT COUNT(*) as count FROM vehicles WHERE status = 'En Route'")->fetch_assoc()['count'];
-$pending_alerts = $conn->query("SELECT COUNT(*) as count FROM alerts WHERE status = 'Pending'")->fetch_assoc()['count'];
-$live_trips_result = $conn->query("SELECT v.type as vehicle_type, v.model, d.name as driver_name, t.status FROM trips t JOIN vehicles v ON t.vehicle_id = v.id JOIN drivers d ON t.driver_id = d.id WHERE t.status IN ('En Route', 'Breakdown', 'Idle') ORDER BY t.pickup_time DESC LIMIT 5");
-
-// Driver Data
 $driver_info = null;
-$trip_summary = null;
-if ($user_role === 'driver' && $driver_id) {
-    $driver_info_sql = "SELECT d.name, v.type as vehicle_type, v.model as vehicle_model, d.status FROM drivers d LEFT JOIN vehicles v ON d.id = v.assigned_driver_id WHERE d.id = ?";
-    $stmt = $conn->prepare($driver_info_sql);
-    $stmt->bind_param("i", $driver_id);
-    $stmt->execute();
-    $driver_info = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+$trip_info = null;
 
-    $trip_summary_sql = "SELECT t.trip_code, t.destination, t.pickup_time, t.eta, t.status FROM trips t WHERE t.driver_id = ? AND t.status IN ('En Route', 'Scheduled') ORDER BY t.pickup_time DESC LIMIT 1";
-    $stmt = $conn->prepare($trip_summary_sql);
-    $stmt->bind_param("i", $driver_id);
-    $stmt->execute();
-    $trip_summary = $stmt->get_result()->fetch_assoc();
-    $stmt->close();
+// Fetch driver details, including their status
+$driver_stmt = $conn->prepare("SELECT d.*, v.type as vehicle_type, v.model as vehicle_model FROM drivers d LEFT JOIN vehicles v ON d.id = v.assigned_driver_id WHERE d.user_id = ?");
+$driver_stmt->bind_param("i", $user_id);
+$driver_stmt->execute();
+$driver_result = $driver_stmt->get_result();
+if ($driver_result->num_rows > 0) {
+    $driver_info = $driver_result->fetch_assoc();
+    $driver_id = $driver_info['id'];
+
+    // If driver is active, fetch current trip details
+    if ($driver_info['status'] === 'Active') {
+        $trip_stmt = $conn->prepare("SELECT t.id, t.destination, t.status, t.client_name FROM trips t WHERE t.driver_id = ? AND t.status = 'En Route' LIMIT 1");
+        $trip_stmt->bind_param("i", $driver_id);
+        $trip_stmt->execute();
+        $trip_result = $trip_stmt->get_result();
+        $trip_info = $trip_result->fetch_assoc();
+        $trip_stmt->close();
+    }
 }
-
-// Messaging and Alerts Data
-$messages_result = $conn->query("SELECT u_sender.username as sender, u_receiver.username as receiver, message_text, sent_at FROM messages JOIN users u_sender ON messages.sender_id = u_sender.id JOIN users u_receiver ON messages.receiver_id = u_receiver.id WHERE (sender_id = $admin_id AND receiver_id = $user_id) OR (sender_id = $user_id AND receiver_id = $admin_id) ORDER BY sent_at ASC");
-$sos_alerts_result = $conn->query("SELECT a.created_at, d.name as driver_name, a.description, a.status FROM alerts a JOIN drivers d ON a.driver_id = d.id WHERE a.alert_type = 'SOS' ORDER BY a.created_at DESC LIMIT 5");
-$active_drivers_for_messaging = $conn->query("SELECT d.id, d.name, u.id as user_id FROM drivers d JOIN users u ON d.user_id = u.id WHERE d.status = 'Active'");
+$driver_stmt->close();
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <title>Mobile App - Logistics II</title>
-    <style>
-        :root {
-            --primary-color: #4e73df; --dark-bg: #1a1a2e; --dark-card: #16213e;
-            --text-light: #f8f9fa; --text-dark: #212529; --success-color: #1cc88a;
-            --danger-color: #e74a3b; --border-radius: 0.35rem; --secondary-color: #f8f9fc;
-            --shadow: 0 0.15rem 1.75rem 0 rgba(58, 59, 69, 0.15);
-        }
-        html, body { 
-            margin: 0; 
-            padding: 0; 
-            height: 100%; 
-            width: 100%;
-            font-family: 'Segoe UI', system-ui, sans-serif; 
-            background-color: var(--secondary-color); 
-            overflow: hidden; 
-        }
-        .app-wrapper { 
-            width: 100%; 
-            height: 100%; 
-            display: flex; 
-            flex-direction: column; 
-            overflow: hidden; 
-            position: relative; 
-        }
-        .app-header { 
-            background: var(--primary-color); 
-            color: white; 
-            padding: 15px 20px; 
-            text-align: center; 
-            font-weight: 600; 
-            font-size: 1.2rem; 
-            flex-shrink: 0; 
-            position: relative;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            z-index: 10;
-        }
-        .app-header .back-link { 
-            position: absolute; 
-            left: 20px; 
-            top: 50%; 
-            transform: translateY(-50%); 
-            color: white; 
-            text-decoration: none; 
-            font-size: 1.5rem; 
-            line-height: 1; 
-        }
-        .app-content { 
-            flex-grow: 1; 
-            overflow-y: auto; 
-            padding: 15px; 
-        }
-        .app-content .page { display: none; }
-        .app-content .page.active { display: block; animation: fadeIn 0.3s; }
-        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .bottom-nav { 
-            display: flex; 
-            background: #fff; 
-            border-top: 1px solid #ddd; 
-            flex-shrink: 0; 
-            box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
-        }
-        .nav-item, a.nav-item { 
-            flex: 1; 
-            text-align: center; 
-            padding: 10px 5px; 
-            cursor: pointer; 
-            color: #777; 
-            transition: all 0.2s; 
-            border-top: 3px solid transparent; 
-            text-decoration: none;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            font-size: 0.8rem;
-        }
-        .nav-item.active { 
-            color: var(--primary-color); 
-            border-top-color: var(--primary-color); 
-            font-weight: 600; 
-        }
-        .nav-item svg { width: 24px; height: 24px; margin-bottom: 3px; }
-        .card { 
-            background-color: white; 
-            border-radius: var(--border-radius); 
-            box-shadow: var(--shadow); 
-            padding: 1rem; 
-            margin-bottom: 1rem; 
-        }
-        h4 { margin: 0 0 10px 0; color: var(--primary-color); }
-        .status-badge { padding: 0.25em 0.6em; font-size: 0.75rem; font-weight: 700; border-radius: 10rem; color: #fff; }
-        .status-en.route, .status-completed { background-color: var(--success-color); }
-        .status-breakdown { background-color: var(--danger-color); }
-        .status-idle, .status-scheduled { background-color: #6c757d; }
-        .btn { padding: 0.75rem 1rem; border: none; border-radius: 4px; font-size: 1rem; cursor: pointer; text-decoration: none; display: block; text-align: center; font-weight: 600; }
-        .btn-danger { background-color: var(--danger-color); color: white; }
-        .btn-primary { background-color: var(--primary-color); color: white; }
-        .chat-box { height: calc(100vh - 250px); overflow-y: auto; border: 1px solid #ddd; padding: 10px; border-radius: var(--border-radius); margin-bottom: 10px; font-size: 0.9rem; }
-        .chat-input { display: flex; gap: 5px; }
-        .chat-input input, .chat-input select { width: 100%; padding: 0.5rem; border: 1px solid #ddd; border-radius: 4px; flex-grow: 1; }
-        .message { margin-bottom: 8px; padding: 5px; }
-        .message.sent { text-align: right; }
-        .message.received { text-align: left; }
-        .message .bubble { display: inline-block; padding: 8px 12px; border-radius: 15px; max-width: 80%; }
-        .message.sent .bubble { background-color: var(--primary-color); color: white; }
-        .message.received .bubble { background-color: #e4e6eb; color: var(--text-dark); }
-        .sos-button-container { text-align: center; padding: 2rem 0; }
-        .sos-button { width: 150px; height: 150px; border-radius: 50%; background: var(--danger-color); color: white; font-size: 2.5rem; font-weight: bold; border: 5px solid #fff; box-shadow: 0 0 20px rgba(231, 74, 59, 0.5); display: flex; align-items: center; justify-content: center; margin: auto; }
-        table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
-        th, td { padding: 8px; text-align: left; border-bottom: 1px solid #ddd; }
-    </style>
+    <title>Driver App - Logistics II</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Firebase SDKs -->
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 </head>
-<body>
+<body class="mobile-app-body">
     <div class="app-wrapper">
-        <div class="app-header">
-            <?php if ($user_role !== 'driver'): ?>
-                <a href="MA.php" class="back-link">&larr;</a>
-            <?php endif; ?>
-            SLATE Mobile Command
-        </div>
+        <div class="app-header">SLATE Driver App</div>
         <div class="app-content">
-            <!-- Dashboard Page -->
-            <div class="page active" id="dashboard">
-                <?php if ($user_role === 'driver'): ?>
-                    <h4>Driver Dashboard</h4>
-                    <div class="card">
-                        <?php if ($driver_info): ?>
-                            <p><strong>Driver:</strong> <?php echo htmlspecialchars($driver_info['name']); ?></p>
-                            <p><strong>Vehicle:</strong> <?php echo htmlspecialchars($driver_info['vehicle_type'] . ' ' . $driver_info['vehicle_model']); ?></p>
-                        <?php else: ?>
-                            <p>No driver info linked.</p>
-                        <?php endif; ?>
-                    </div>
+            <?php if ($driver_info && $driver_info['status'] === 'Active'): ?>
+                <!-- Active Driver View -->
+                <div class="card">
+                    <h4>Driver & Vehicle</h4>
+                    <p><strong>Driver:</strong> <?php echo htmlspecialchars($driver_info['name']); ?></p>
+                    <p><strong>Vehicle:</strong> <?php echo htmlspecialchars($driver_info['vehicle_type'] . ' ' . $driver_info['vehicle_model']); ?></p>
+                </div>
+
+                <?php if ($trip_info): ?>
                     <div class="card">
                         <h4>Current Trip</h4>
-                        <?php if ($trip_summary): ?>
-                            <p><strong>Trip:</strong> <?php echo htmlspecialchars($trip_summary['trip_code']); ?></p>
-                            <p><strong>Destination:</strong> <?php echo htmlspecialchars($trip_summary['destination']); ?></p>
-                            <p><strong>Status:</strong> <span class="status-badge status-<?php echo strtolower(str_replace(' ', '.', $trip_summary['status'])); ?>"><?php echo htmlspecialchars($trip_summary['status']); ?></span></p>
-                        <?php else: ?>
-                            <p>No active trip.</p>
-                        <?php endif; ?>
+                        <p><strong>Assigned Client:</strong> <?php echo htmlspecialchars($trip_info['client_name'] ?? 'N/A'); ?></p>
+                        <p><strong>Destination:</strong> <?php echo htmlspecialchars($trip_info['destination']); ?></p>
+                        <p><strong>Status:</strong> <span class="status-badge status-en-route">En Route</span></p>
                     </div>
-                <?php elseif ($user_role === 'admin' || $user_role === 'staff'): ?>
-                    <h4>Admin Fleet Overview</h4>
-                    <div class="card">
-                        <p><strong>Active Vehicles:</strong> <?php echo $active_vehicles; ?></p>
-                        <p><strong>Pending Alerts:</strong> <span style="color:var(--danger-color); font-weight:bold;"><?php echo $pending_alerts; ?></span></p>
-                    </div>
-                    <div class="card">
-                        <h4>Live Trip Status</h4>
-                        <table>
-                            <tbody>
-                                <?php mysqli_data_seek($live_trips_result, 0); while($trip = $live_trips_result->fetch_assoc()): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($trip['driver_name']); ?><br><small><?php echo htmlspecialchars($trip['vehicle_type']); ?></small></td>
-                                    <td><span class="status-badge status-<?php echo strtolower(str_replace(' ', '.', $trip['status'])); ?>"><?php echo htmlspecialchars($trip['status']); ?></span></td>
-                                </tr>
-                                <?php endwhile; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                <?php endif; ?>
-            </div>
-            <!-- Messages Page -->
-            <div class="page" id="messages">
-                <h4>Messages</h4>
-                <div class="chat-box" id="chatBox">
-                     <?php mysqli_data_seek($messages_result, 0); while($msg = $messages_result->fetch_assoc()): 
-                        $is_sent = ($msg['sender'] === $_SESSION['username']);
-                     ?>
-                        <div class="message <?php echo $is_sent ? 'sent' : 'received'; ?>">
-                            <div class="bubble">
-                                <?php echo htmlspecialchars($msg['message_text']); ?>
-                            </div>
-                        </div>
-                    <?php endwhile; ?>
-                </div>
-                <form id="messageForm" action="MA.php" method="POST" class="chat-input">
-                    <?php if ($user_role !== 'driver'): ?>
-                        <select name="receiver_id" required>
-                            <option value="">To Driver:</option>
-                            <?php mysqli_data_seek($active_drivers_for_messaging, 0); while($driver = $active_drivers_for_messaging->fetch_assoc()): ?>
-                            <option value="<?php echo $driver['user_id']; ?>"><?php echo htmlspecialchars($driver['name']); ?></option>
-                            <?php endwhile; ?>
-                        </select>
-                    <?php endif; ?>
-                    <input type="text" name="message_text" id="message_text_input" placeholder="Type a message..." required>
-                    <input type="hidden" name="send_message" value="1">
-                    <button type="submit" class="btn-primary" style="padding: 0.5rem;">Send</button>
-                </form>
-            </div>
 
-            <!-- Alerts/SOS Page -->
-            <div class="page" id="alerts">
-                <?php if ($user_role === 'driver'): ?>
-                    <h4>Emergency SOS</h4>
-                    <div class="sos-button-container">
-                        <form action="MA.php" method="POST">
-                            <input type="hidden" name="description" value="Emergency SOS sent from app">
-                            <button type="submit" name="send_sos" class="sos-button">SOS</button>
-                        </form>
-                        <p style="text-align:center; margin-top:1rem; color:#666;">Press only in case of emergency.</p>
+                    <div class="speedometer-container">
+                        <div class="speedometer">
+                            <div id="speedValue" class="speed-value">0</div>
+                            <div class="speed-unit">km/h</div>
+                        </div>
+                        <div id="locationDisplay" class="location-display">Initializing GPS...</div>
                     </div>
-                <?php elseif ($user_role === 'admin' || $user_role === 'staff'): ?>
-                    <h4>SOS Alerts</h4>
-                    <div class="card">
-                        <table>
-                            <thead><tr><th>Driver</th><th>Time</th><th>Status</th></tr></thead>
-                            <tbody>
-                                <?php mysqli_data_seek($sos_alerts_result, 0); while($alert = $sos_alerts_result->fetch_assoc()): ?>
-                                <tr>
-                                    <td><?php echo htmlspecialchars($alert['driver_name']); ?></td>
-                                    <td><?php echo htmlspecialchars(date('h:i A', strtotime($alert['created_at']))); ?></td>
-                                    <td><span class="status-badge status-<?php echo strtolower($alert['status']); ?>"><?php echo htmlspecialchars($alert['status']); ?></span></td>
-                                </tr>
-                                <?php endwhile; ?>
-                            </tbody>
-                        </table>
+                <?php else: ?>
+                    <div class="card" style="text-align:center;">
+                        <h4>Standby</h4>
+                        <p>You have no active trip. Please wait for dispatch instructions.</p>
                     </div>
                 <?php endif; ?>
-            </div>
+            
+            <?php elseif($driver_info && $driver_info['status'] === 'Pending'): ?>
+                 <!-- Pending Driver View -->
+                <div class="app-status-page">
+                    <div class="status-icon-container pending">
+                         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-clock-history" viewBox="0 0 16 16">
+                          <path d="M8.515 1.019A7 7 0 0 0 8 1V0a8 8 0 0 1 .589.022l-.074.997zM5.56 2.423a7.001 7.001 0 0 0-2.09 1.13l.47.887a6 6 0 0 1 1.74-1.02l-.12-.999zM2.423 5.56a7.001 7.001 0 0 0-1.13 2.09l.887.47a6 6 0 0 1 1.02-1.74l-.999-.12zm-1.13 4.45a7.001 7.001 0 0 0 1.13 2.09l.999-.12a6 6 0 0 1-1.02-1.74l-.887.47zM5.56 13.577a7.001 7.001 0 0 0 2.09 1.13l.12-.999a6 6 0 0 1-1.74-1.02l-.47.887zM11.537 12.6l.47-.887a6 6 0 0 1-1.74 1.02l.12.999a7.001 7.001 0 0 0 2.09-1.13zM13.577 8.44a7.001 7.001 0 0 0-1.13-2.09l-.999.12a6 6 0 0 1 1.02 1.74l.887-.47z"/>
+                          <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                          <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                        </svg>
+                    </div>
+                    <h3 class="status-title">Account Pending Approval</h3>
+                    <p class="status-message">Your registration is being reviewed by an administrator. Please check back later.</p>
+                    <a href="logout.php" class="btn btn-secondary" style="margin-top: 1.5rem;">Logout</a>
+                </div>
+            <?php else: ?>
+                <!-- Inactive/Suspended or No Profile View -->
+                <div class="app-status-page">
+                    <div class="status-icon-container access-denied">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" fill="currentColor" class="bi bi-x-circle-fill" viewBox="0 0 16 16">
+                          <path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM5.354 4.646a.5.5 0 1 0-.708.708L7.293 8l-2.647 2.646a.5.5 0 0 0 .708.708L8 8.707l2.646 2.647a.5.5 0 0 0 .708-.708L8.707 8l2.647-2.646a.5.5 0 0 0-.708-.708L8 7.293 5.354 4.646z"/>
+                        </svg>
+                    </div>
+                    <h3 class="status-title">Access Denied</h3>
+                    <p class="status-message">Your account is currently not active or found. Please contact an administrator.</p>
+                    <a href="logout.php" class="btn btn-secondary" style="margin-top: 1.5rem;">Logout</a>
+                </div>
+            <?php endif; ?>
         </div>
         <div class="bottom-nav">
-            <div class="nav-item active" data-page="dashboard">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg>
-                Dashboard
-            </div>
-            <div class="nav-item" data-page="messages">
-               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-2 .9-2 2v18l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2z"/></svg>
-                Messages
-            </div>
-            <div class="nav-item" data-page="alerts">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
-                <?php echo $user_role === 'driver' ? 'SOS' : 'Alerts'; ?>
-            </div>
-            <a href="logout.php" class="nav-item">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"><path d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 012 2v2h-2V4H5v16h9v-2h2v2a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h9z"/></svg>
+             <a href="logout.php" class="nav-item">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" style="width: 24px; height: 24px;"><path d="M16 17v-3H9v-4h7V7l5 5-5 5M14 2a2 2 0 012 2v2h-2V4H5v16h9v-2h2v2a2 2 0 01-2 2H5a2 2 0 01-2-2V4a2 2 0 012-2h9z"/></svg>
                 Logout
             </a>
         </div>
     </div>
 
-    <script>
-        document.addEventListener('DOMContentLoaded', function() {
-            // Tab switching logic
-            document.querySelectorAll('.nav-item[data-page]').forEach(item => {
-                item.addEventListener('click', () => {
-                    document.querySelectorAll('.nav-item').forEach(nav => nav.classList.remove('active'));
-                    document.querySelectorAll('.page').forEach(page => page.classList.remove('active'));
-                    
-                    item.classList.add('active');
-                    document.getElementById(item.dataset.page).classList.add('active');
-                });
-            });
+<?php if ($driver_info && $driver_info['status'] === 'Active' && $trip_info): ?>
+<script>
+    const firebaseConfig = {
+        apiKey: "AIzaSyCB0_OYZXX3K-AxKeHnVlYMv2wZ_81FeYM",
+        authDomain: "slate49-cde60.firebaseapp.com",
+        databaseURL: "https://slate49-cde60-default-rtdb.firebaseio.com",
+        projectId: "slate49-cde60",
+        storageBucket: "slate49-cde60.firebasestorage.app",
+        messagingSenderId: "809390854040",
+        appId: "1:809390854040:web:f7f77333bb0ac7ab73e5ed",
+        measurementId: "G-FNW2WP3351"
+    };
+    try {
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); } else { firebase.app(); }
+    } catch(e) { console.error("Firebase init failed. Check config.", e); }
+    const database = firebase.database();
 
-            // AJAX form submission for messaging
-            const messageForm = document.getElementById('messageForm');
-            if (messageForm) {
-                messageForm.addEventListener('submit', function(event) {
-                    event.preventDefault(); 
+    const speedValueElement = document.getElementById('speedValue');
+    const locationDisplayElement = document.getElementById('locationDisplay');
+    const tripId = <?php echo json_encode($trip_info['id']); ?>;
+    const vehicleInfo = <?php echo json_encode($driver_info['vehicle_type'] . ' ' . $driver_info['vehicle_model']); ?>;
+    const driverName = <?php echo json_encode($driver_info['name']); ?>;
 
-                    const formData = new FormData(messageForm);
-                    const messageInput = document.getElementById('message_text_input');
-                    const chatBox = document.getElementById('chatBox');
-                    const messageText = messageInput.value.trim();
+    function updateFirebase(position) {
+        const speedMs = position.coords.speed;
+        const speedKmh = speedMs ? Math.round(speedMs * 3.6) : 0;
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
 
-                    if (messageText === '') return;
+        // Update UI elements
+        speedValueElement.textContent = speedKmh;
+        if (locationDisplayElement) {
+            locationDisplayElement.textContent = `Lat: ${lat.toFixed(4)}, Lng: ${lng.toFixed(4)}`;
+        }
 
-                    // Append new message immediately to the chatbox
-                    const newMessageDiv = document.createElement('div');
-                    newMessageDiv.className = 'message sent';
-                    newMessageDiv.innerHTML = `<div class="bubble">${messageText.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</div>`;
-                    chatBox.appendChild(newMessageDiv);
-                    chatBox.scrollTop = chatBox.scrollHeight;
-                    messageInput.value = '';
+        const data = {
+            lat: lat,
+            lng: lng,
+            speed: speedKmh, // Send speed in km/h
+            timestamp: new Date().toISOString(),
+            vehicle_info: vehicleInfo,
+            driver_name: driverName
+        };
 
-                    const submitButton = messageForm.querySelector('button[type="submit"]');
-                    submitButton.disabled = true;
+        database.ref('live_tracking/' + tripId).set(data)
+            .catch(error => console.error('Firebase update failed:', error));
+    }
 
-                    fetch('MA.php', {
-                        method: 'POST',
-                        body: formData
-                    })
-                    .catch(error => {
-                        console.error('Error sending message:', error);
-                        // Optional: Show an error message or revert the optimistic update
-                        chatBox.removeChild(newMessageDiv);
-                        messageInput.value = messageText;
-                        alert('Could not send message. Please try again.');
-                    })
-                    .finally(() => {
-                        submitButton.disabled = false;
-                    });
-                });
+    function handleLocationError(error) {
+        let message = 'Location tracking error.';
+        switch(error.code) {
+            case error.PERMISSION_DENIED:
+                message = "Kailangan ng pahintulot para sa lokasyon.";
+                break;
+            case error.POSITION_UNAVAILABLE:
+                message = "Hindi makuha ang impormasyon ng lokasyon.";
+                break;
+            case error.TIMEOUT:
+                message = "Nag-timeout ang request para sa lokasyon.";
+                break;
+        }
+        if (locationDisplayElement) {
+            locationDisplayElement.textContent = message;
+        }
+    }
+
+    if (navigator.geolocation && tripId) {
+        navigator.geolocation.watchPosition(
+            updateFirebase, 
+            handleLocationError, 
+            {
+                enableHighAccuracy: true,
+                timeout: 10000,
+                maximumAge: 0
             }
-        });
-    </script>
+        );
+    } else {
+        if (locationDisplayElement) {
+            locationDisplayElement.textContent = 'Hindi suportado ang Geolocation o walang aktibong biyahe.';
+        }
+    }
+</script>
+<?php endif; ?>
 </body>
 </html>
-

@@ -7,7 +7,7 @@ if (isset($_SESSION["loggedin"]) && $_SESSION["loggedin"] === true) {
 }
 
 require_once 'db_connect.php';
-require_once 'mailer.php'; // Idinagdag para sa pagpapadala ng email
+require_once 'mailer.php'; 
 
 $username = "";
 $error_message = "";
@@ -58,7 +58,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                 $otp_stmt->execute();
                                 $otp_stmt->close();
                                 
-                                // Ihanda at ipadala ang OTP email
                                 $subject = "Your OTP for SLATE Logistics Login";
                                 $body = "<h3>Login Verification</h3>
                                          <p>Your One-Time Password (OTP) is: <strong>$otp_code</strong></p>
@@ -66,9 +65,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                                          <p>If you did not request this, please ignore this email.</p>";
                                 
                                 if (sendEmail($email, $subject, $body)) {
-                                    // Itago ang user ID sa session para sa verification page
                                     $_SESSION['otp_user_id'] = $id;
-                                    // I-redirect sa OTP verification page
                                     header("location: verify_otp.php");
                                     exit;
                                 } else {
@@ -119,6 +116,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
       .error-message { color: #ffb3b3; background-color: rgba(255, 0, 0, 0.2); border: 1px solid #ff4d4d; padding: 0.75rem; border-radius: 0.375rem; margin-top: 1rem; text-align: center; }
       .forgot-password { text-align: right; margin-top: -0.75rem; margin-bottom: 1.25rem; }
       .forgot-password a { font-size: 0.9em; color: #00c6ff; text-decoration: none; }
+      .register-link { text-align: center; margin-top: 1.5rem; }
+      .register-link a { color: #00c6ff; text-decoration: none; font-weight: 600; }
   </style>
 </head>
 <body class="login-page-body">
@@ -140,9 +139,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             <button type="submit">Log In</button>
             <?php if(!empty($error_message)){ echo '<div class="error-message">' . $error_message . '</div>'; } ?>
           </form>
+          <div class="register-link">
+            Want to be a driver? <a href="driver_register.php">Register here</a>
+          </div>
         </div>
       </div>
     </div>
   </div>
+  <footer>
+    © 2025 SLATE Freight Management System. All rights reserved. &nbsp;|&nbsp;
+    <a href="terms.php" target="_blank">Terms & Conditions</a> &nbsp;|&nbsp;
+    <a href="privacy.php" target="_blank">Privacy Policy</a>
+  </footer>
 </body>
 </html>
+

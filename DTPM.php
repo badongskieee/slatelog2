@@ -7,7 +7,45 @@ if (!isset($_SESSION["loggedin"]) || $_SESSION["loggedin"] !== true) {
 require_once 'db_connect.php';
 $message = '';
 
-// Handle Add/Edit/Delete Driver (No changes here)
+// Handle Driver Approval/Rejection
+if ($_SESSION['role'] === 'admin' && $_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['update_driver_status'])) {
+    $driver_id_to_update = $_POST['driver_id_to_update'];
+    $new_status = $_POST['new_status']; // 'Active' or 'Rejected'
+
+    if ($new_status === 'Active') {
+        $stmt = $conn->prepare("UPDATE drivers SET status = 'Active' WHERE id = ?");
+        $stmt->bind_param("i", $driver_id_to_update);
+        if ($stmt->execute()) {
+            $message = "<div class='message-banner success'>Driver approved and is now active.</div>";
+        } else {
+            $message = "<div class='message-banner error'>Error approving driver.</div>";
+        }
+        $stmt->close();
+    } elseif ($new_status === 'Rejected') {
+        // First get the user_id associated with the driver
+        $user_id_query = $conn->prepare("SELECT user_id FROM drivers WHERE id = ?");
+        $user_id_query->bind_param("i", $driver_id_to_update);
+        $user_id_query->execute();
+        $user_id_result = $user_id_query->get_result();
+        if($user_id_row = $user_id_result->fetch_assoc()){
+            $user_id_to_delete = $user_id_row['user_id'];
+            
+            // Because of ON DELETE CASCADE, deleting the user will also delete the driver record.
+            $stmt = $conn->prepare("DELETE FROM users WHERE id = ?");
+            $stmt->bind_param("i", $user_id_to_delete);
+            if ($stmt->execute()) {
+                $message = "<div class='message-banner success'>Driver registration rejected and record deleted.</div>";
+            } else {
+                $message = "<div class='message-banner error'>Error rejecting driver.</div>";
+            }
+            $stmt->close();
+        }
+        $user_id_query->close();
+    }
+}
+
+
+// Handle Add/Edit Driver
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['save_driver'])) {
     $id = $_POST['driver_id']; $name = $_POST['name']; $license_number = $_POST['license_number']; $status = $_POST['status']; $rating = $_POST['rating']; $user_id = !empty($_POST['user_id']) ? (int)$_POST['user_id'] : NULL;
     if (empty($id)) { $sql = "INSERT INTO drivers (name, license_number, status, rating, user_id) VALUES (?, ?, ?, ?, ?)"; $stmt = $conn->prepare($sql); $stmt->bind_param("sssdi", $name, $license_number, $status, $rating, $user_id);
@@ -21,22 +59,12 @@ if (isset($_GET['delete_driver'])) {
     $stmt->close();
 }
 
-// Fetch Initial Tracking Data for vehicles already en route when page loads.
-$initial_tracking_query = $conn->query("
-    SELECT t.id as trip_id, v.type, v.model, d.name as driver_name, tl.latitude, tl.longitude, tl.speed_mph, tl.status_message
-    FROM tracking_log tl
-    JOIN trips t ON tl.trip_id = t.id AND t.status = 'En Route'
-    JOIN vehicles v ON t.vehicle_id = v.id
-    JOIN drivers d ON t.driver_id = d.id
-    INNER JOIN ( SELECT trip_id, MAX(log_time) AS max_log_time FROM tracking_log GROUP BY trip_id ) latest_log 
-    ON tl.trip_id = latest_log.trip_id AND tl.log_time = latest_log.max_log_time
-");
-$initial_locations = [];
-if ($initial_tracking_query) { while($row = $initial_tracking_query->fetch_assoc()) { $initial_locations[] = $row; } }
-$initial_locations_json = json_encode($initial_locations);
+// Fetch Pending Drivers
+$pending_drivers = $conn->query("SELECT d.id, d.name, d.license_number, u.email FROM drivers d JOIN users u ON d.user_id = u.id WHERE d.status = 'Pending' ORDER BY d.created_at ASC");
 
-// Fetch Driver Data
-$drivers = $conn->query("SELECT d.*, v.type as vehicle_type, v.model as vehicle_model, v.tag_code FROM drivers d LEFT JOIN vehicles v ON d.id = v.assigned_driver_id ORDER BY d.name ASC");
+// Fetch Active Driver Data
+$drivers_query = "SELECT d.*, v.type as vehicle_type, v.model as vehicle_model, v.tag_code FROM drivers d LEFT JOIN vehicles v ON d.id = v.assigned_driver_id WHERE d.status != 'Pending' ORDER BY d.name ASC";
+$drivers = $conn->query($drivers_query);
 $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
 ?>
 <!DOCTYPE html>
@@ -61,6 +89,7 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
     <a href="VRDS.php">Vehicle Reservation & Dispatch System (VRDS)</a>
     <a href="DTPM.php" class="active">Driver and Trip Performance Monitoring</a>
     <a href="TCAO.php">Transport Cost Analysis & Optimization (TCAO)</a>
+  
     <a href="MA.php">Mobile Fleet Command App</a>
     <a href="logout.php">Logout</a>
   </div>
@@ -77,33 +106,49 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
     
     <?php echo $message; ?>
 
+    <?php if ($_SESSION['role'] === 'admin' && $pending_drivers->num_rows > 0): ?>
     <div class="table-section">
+      <h3>Pending Driver Registrations</h3>
+      <table>
+        <thead><tr><th>Name</th><th>License No.</th><th>Email</th><th>Actions</th></tr></thead>
+        <tbody>
+            <?php while($row = $pending_drivers->fetch_assoc()): ?>
+            <tr>
+                <td><?php echo htmlspecialchars($row['name']); ?></td>
+                <td><?php echo htmlspecialchars($row['license_number']); ?></td>
+                <td><?php echo htmlspecialchars($row['email']); ?></td>
+                <td>
+                    <form action="DTPM.php" method="POST" style="display: inline-block;">
+                        <input type="hidden" name="driver_id_to_update" value="<?php echo $row['id']; ?>">
+                        <input type="hidden" name="new_status" value="Active">
+                        <button type="submit" name="update_driver_status" class="btn btn-success btn-sm">Approve</button>
+                    </form>
+                    <form action="DTPM.php" method="POST" style="display: inline-block;">
+                        <input type="hidden" name="driver_id_to_update" value="<?php echo $row['id']; ?>">
+                        <input type="hidden" name="new_status" value="Rejected">
+                        <button type="submit" name="update_driver_status" class="btn btn-danger btn-sm" onclick="return confirm('Are you sure you want to reject and delete this registration?');">Reject</button>
+                    </form>
+                </td>
+            </tr>
+            <?php endwhile; ?>
+        </tbody>
+      </table>
+    </div>
+    <?php endif; ?>
+
+    <div class="table-section" style="margin-top: 2rem;">
       <h3>Live Tracking Module</h3>
        <div style="margin-bottom: 1rem;">
           <a href="trip_history.php" class="btn btn-info">Trip History Logs</a>
        </div>
       <div id="liveTrackingMap" style="height: 400px; width: 100%; border-radius: var(--border-radius); margin-bottom: 1.5rem;"></div>
-      
       <table>
         <thead>
           <tr><th>Vehicle</th><th>Driver</th><th>Location (Lat, Lng)</th><th>Speed</th><th>Status</th><th>Actions</th></tr>
         </thead>
         <tbody id="tracking-table-body">
-          <tr id="no-tracking-placeholder" style="<?php echo count($initial_locations) > 0 ? 'display: none;' : ''; ?>">
-            <td colspan="6">No live tracking data available. Start the simulator or a real device.</td>
-          </tr>
-          <?php if(count($initial_locations) > 0): ?>
-            <?php foreach($initial_locations as $row): ?>
-            <tr class="clickable-row" id="trip-row-<?php echo $row['trip_id']; ?>" data-tripid="<?php echo $row['trip_id']; ?>" style="cursor: pointer;">
-                <td><?php echo htmlspecialchars($row['type'] . ' ' . $row['model']); ?></td>
-                <td><?php echo htmlspecialchars($row['driver_name']); ?></td>
-                <td class="location-cell"><?php echo htmlspecialchars($row['latitude'] . ', ' . $row['longitude']); ?></td>
-                <td class="speed-cell"><?php echo htmlspecialchars($row['speed_mph']); ?> mph</td>
-                <td><?php echo htmlspecialchars($row['status_message']); ?></td>
-                <td><a href="VRDS.php" class="btn btn-info btn-sm">View Dispatch</a></td>
-            </tr>
-            <?php endforeach; ?>
-          <?php endif; ?>
+            <!-- Rows are populated by JavaScript -->
+             <tr id="no-tracking-placeholder"><td colspan="6">No live tracking data available. Waiting for live feed...</td></tr>
         </tbody>
       </table>
     </div>      
@@ -124,7 +169,7 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
                   <td>
                     <?php if (!empty($row['vehicle_type'])): ?>
                         <a href="FVM.php?query=<?php echo urlencode($row['tag_code']); ?>" title="Click to view in FVM Module">
-                            <?php echo htmlspecialchars($row['vehicle_type'] . ' ' . $row['vehicle_model']); ?>
+                            <?php echo htmlspecialchars($row['vehicle_type'] . ' ' . $row['model']); ?>
                         </a>
                     <?php else: ?>
                         <span style="color: #888;">N/A</span>
@@ -140,7 +185,9 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
                   </td>
               </tr>
               <?php endwhile; ?>
-            <?php else: ?><tr><td colspan="6">No drivers found.</td></tr><?php endif; ?>
+            <?php else: ?>
+                <tr><td colspan="6">No active drivers found.</td></tr>
+            <?php endif; ?>
         </tbody>
       </table>
     </div>
@@ -152,21 +199,24 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
         <h2 id="modalTitle">Add Driver</h2>
         <form action="DTPM.php" method="POST">
             <input type="hidden" id="driver_id" name="driver_id">
-            <div class="form-group"><label for="name">Full Name</label><input type="text" name="name" id="name" class="form-control" required></div>
-            <div class="form-group"><label for="license_number">License Number</label><input type="text" name="license_number" id="license_number" class="form-control" required></div>
-            <div class="form-group"><label for="rating">Rating (1.0 - 5.0)</label><input type="number" step="0.1" min="1" max="5" name="rating" id="rating" class="form-control" required></div>
-            <div class="form-group"><label for="status">Status</label><select name="status" id="status" class="form-control" required><option value="Active">Active</option><option value="Suspended">Suspended</option><option value="Inactive">Inactive</option></select></div>
-            <div class="form-group"><label for="user_id">Link to User Account</label><select name="user_id" id="user_id" class="form-control"><option value="">-- None --</option><?php mysqli_data_seek($users, 0); while($user = $users->fetch_assoc()): ?><option value="<?php echo $user['id']; ?>"><?php echo htmlspecialchars($user['username']); ?></option><?php endwhile; ?></select></div>
+            <div class="form-group"><label>Full Name</label><input type="text" name="name" id="name" class="form-control" required></div>
+            <div class="form-group"><label>License Number</label><input type="text" name="license_number" id="license_number" class="form-control" required></div>
+            <div class="form-group"><label>Rating (1.0 - 5.0)</label><input type="number" step="0.1" min="1" max="5" name="rating" id="rating" class="form-control" required></div>
+            <div class="form-group"><label>Status</label><select name="status" id="status" class="form-control" required><option value="Active">Active</option><option value="Suspended">Suspended</option><option value="Inactive">Inactive</option></select></div>
+            <div class="form-group"><label>Link to User Account</label><select name="user_id" id="user_id" class="form-control"><option value="">-- None --</option><?php mysqli_data_seek($users, 0); while($user = $users->fetch_assoc()): ?><option value="<?php echo $user['id']; ?>"><?php echo htmlspecialchars($user['username']); ?></option><?php endwhile; ?></select></div>
             <div class="form-actions"><button type="button" class="btn btn-secondary cancelBtn">Cancel</button><button type="submit" name="save_driver" class="btn btn-primary">Save Driver</button></div>
         </form>
     </div>
   </div>
   
 <script>
+    // --- Standard page scripts ---
     document.getElementById('themeToggle').addEventListener('change', function() { document.body.classList.toggle('dark-mode', this.checked); });
     document.getElementById('hamburger').addEventListener('click', function() {
-      const sidebar = document.getElementById('sidebar'); const mainContent = document.getElementById('mainContent');
-      if (window.innerWidth <= 992) { sidebar.classList.toggle('show'); } else { sidebar.classList.toggle('collapsed'); mainContent.classList.toggle('expanded'); }
+      const sidebar = document.getElementById('sidebar');
+      const mainContent = document.getElementById('mainContent');
+      if (window.innerWidth <= 992) { sidebar.classList.toggle('show'); } 
+      else { sidebar.classList.toggle('collapsed'); mainContent.classList.toggle('expanded'); }
     });
     document.querySelectorAll('.modal').forEach(modal => {
         const closeBtn = modal.querySelector('.close-button'); const cancelBtn = modal.querySelector('.cancelBtn');
@@ -175,39 +225,39 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
         window.addEventListener('click', (event) => { if (event.target == modal) { modal.style.display = 'none'; } });
     });
     const driverModal = document.getElementById("driverModal");
-    document.getElementById("addDriverBtn").addEventListener("click", () => { driverModal.querySelector('form').reset(); driverModal.querySelector('#driver_id').value = ''; driverModal.querySelector("#modalTitle").textContent = 'Add New Driver'; driverModal.style.display = 'block'; });
+    document.getElementById("addDriverBtn").addEventListener("click", () => {
+        driverModal.querySelector('form').reset(); driverModal.querySelector('#driver_id').value = '';
+        driverModal.querySelector("#modalTitle").textContent = 'Add New Driver';
+        driverModal.style.display = 'block';
+    });
     document.querySelectorAll(".editDriverBtn").forEach(btn => {
         btn.addEventListener("click", () => {
-            driverModal.querySelector('form').reset(); driverModal.querySelector("#modalTitle").textContent = 'Edit Driver';
-            driverModal.querySelector('#driver_id').value = btn.dataset.id; driverModal.querySelector('#name').value = btn.dataset.name; driverModal.querySelector('#license_number').value = btn.dataset.license_number; driverModal.querySelector('#status').value = btn.dataset.status; driverModal.querySelector('#rating').value = btn.dataset.rating; driverModal.querySelector('#user_id').value = btn.dataset.user_id;
+            driverModal.querySelector('form').reset();
+            driverModal.querySelector("#modalTitle").textContent = 'Edit Driver';
+            driverModal.querySelector('#driver_id').value = btn.dataset.id;
+            driverModal.querySelector('#name').value = btn.dataset.name;
+            driverModal.querySelector('#license_number').value = btn.dataset.license_number;
+            driverModal.querySelector('#status').value = btn.dataset.status;
+            driverModal.querySelector('#rating').value = btn.dataset.rating;
+            driverModal.querySelector('#user_id').value = btn.dataset.user_id;
             driverModal.style.display = 'block';
         });
     });
 
-    // --- UPGRADED JAVASCRIPT FOR LIVE TRACKING (WITH DEBUGGING AND FIX) ---
-    console.log("Live Tracking Script Initialized.");
-    const firebaseConfig = {
-    apiKey: "AIzaSyCB0_OYZXX3K-AxKeHnVlYMv2wZ_81FeYM",
-    authDomain: "slate49-cde60.firebaseapp.com",
-    databaseURL: "https://slate49-cde60-default-rtdb.firebaseio.com",
-    projectId: "slate49-cde60",
-    storageBucket: "slate49-cde60.firebasestorage.app",
-    messagingSenderId: "809390854040",
-    appId: "1:809390854040:web:f7f77333bb0ac7ab73e5ed",
-    measurementId: "G-FNW2WP3351"
-  };
-
+    // --- Live Tracking Map Logic ---
+     const firebaseConfig = {
+        apiKey: "AIzaSyCB0_OYZXX3K-AxKeHnVlYMv2wZ_81FeYM",
+        authDomain: "slate49-cde60.firebaseapp.com",
+        databaseURL: "https://slate49-cde60-default-rtdb.firebaseio.com",
+        projectId: "slate49-cde60",
+        storageBucket: "slate49-cde60.firebasestorage.app",
+        messagingSenderId: "809390854040",
+        appId: "1:809390854040:web:f7f77333bb0ac7ab73e5ed",
+        measurementId: "G-FNW2WP3351"
+    };
     try {
-        if (!firebase.apps.length) {
-            firebase.initializeApp(firebaseConfig);
-            console.log("Firebase Initialized.");
-        } else {
-            firebase.app(); 
-            console.log("Firebase was already initialized.");
-        }
-    } catch (e) {
-        console.error("Firebase initialization failed. Please check your config.", e);
-    }
+        if (!firebase.apps.length) { firebase.initializeApp(firebaseConfig); } else { firebase.app(); }
+    } catch(e) { console.error("Firebase init failed. Check config.", e); }
     const database = firebase.database();
     
     const map = L.map('liveTrackingMap').setView([12.8797, 121.7740], 6);
@@ -217,37 +267,39 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
     const trackingTableBody = document.getElementById('tracking-table-body');
     const noTrackingPlaceholder = document.getElementById('no-tracking-placeholder');
 
+    function getVehicleIcon(vehicleInfo) {
+        let svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#858796"><path d="M18.92 6.01C18.72 5.42 18.16 5 17.5 5h-11C5.84 5 5.28 5.42 5.08 6.01L3 12v8c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-1h12v1c0 .55.45 1 1 1h1c.55 0 1-.45 1-1v-8l-2.08-5.99zM6.5 16c-.83 0-1.5-.67-1.5-1.5S5.67 13 6.5 13s1.5.67 1.5 1.5S7.33 16 6.5 16zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5zM5 11l1.5-4.5h11L19 11H5z"/></svg>`;
+        if (vehicleInfo.toLowerCase().includes('truck')) { svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#4e73df"><path d="M20 8h-3V4H3c-1.1 0-2 .9-2 2v11h2c0 1.66 1.34 3 3 3s3-1.34 3-3h6c0 1.66 1.34 3 3 3s3-1.34 3-3h2v-5l-3-4zM6 18c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm13.5-1.5c-.83 0-1.5.67-1.5 1.5s.67 1.5 1.5 1.5 1.5-.67 1.5-1.5-.67-1.5-1.5-1.5zM18 10h1.5v3H18v-3zM3 6h12v7H3V6z"/></svg>`; }
+        else if (vehicleInfo.toLowerCase().includes('van')) { svgIcon = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#1cc88a"><path d="M20 8H4V6h16v2zm-2.17-3.24L15.21 2.14A1 1 0 0014.4 2H5a2 2 0 00-2 2v13c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V7c0-.98-.71-1.8-1.65-1.97l-2.52-.27zM6.5 18c-.83 0-1.5-.67-1.5-1.5S5.67 15 6.5 15s1.5.67 1.5 1.5S7.33 18 6.5 18zm11 0c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5s-.67 1.5-1.5 1.5zM4 13h16V9H4v4z"/></svg>`; }
+        return L.divIcon({ html: svgIcon, className: 'vehicle-icon', iconSize: [40, 40], iconAnchor: [20, 40] });
+    }
+
     function createOrUpdateMarkerAndRow(tripId, data) {
-        console.log(`Updating data for Trip ID: ${tripId}`, data);
-        const vehicle = data.vehicle_info || "Unknown Vehicle";
-        const driver = data.driver_name || "Unknown Driver";
+        if (!data.vehicle_info || !data.driver_name) return; 
+        noTrackingPlaceholder.style.display = 'none';
+        
+        const vehicle = data.vehicle_info;
+        const driver = data.driver_name;
         const newLatLng = [data.lat, data.lng];
-
-        // Hide placeholder if it's visible
-        if (noTrackingPlaceholder.style.display !== 'none') {
-            noTrackingPlaceholder.style.display = 'none';
-        }
-
         let tripRow = document.getElementById(`trip-row-${tripId}`);
+        
         if (!markers[tripId]) {
-            console.log(`Creating new marker and row for Trip ID: ${tripId}`);
             const popupContent = `<b>Vehicle:</b> ${vehicle}<br><b>Driver:</b> ${driver}`;
-            markers[tripId] = L.marker(newLatLng).addTo(map).bindPopup(popupContent);
-            markers[tripId].options.duration = 2000; // for slideTo
-            
-            // Create new table row only if it doesn't exist
+            markers[tripId] = L.marker(newLatLng, { icon: getVehicleIcon(vehicle) }).addTo(map).bindPopup(popupContent);
+            markers[tripId].options.duration = 2000;
             if (!tripRow) {
                 const newRow = document.createElement('tr');
                 newRow.id = `trip-row-${tripId}`; newRow.className = 'clickable-row'; newRow.dataset.tripid = tripId;
-                newRow.innerHTML = `<td>${vehicle}</td><td>${driver}</td><td class="location-cell">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</td><td class="speed-cell">${data.speed} mph</td><td>Trip Started</td><td><a href="VRDS.php" class="btn btn-info btn-sm">View Dispatch</a></td>`;
-                newRow.addEventListener('click', () => focusOnMarker(tripId));
+                newRow.innerHTML = `<td>${vehicle}</td><td>${driver}</td><td class="location-cell">${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}</td><td class="speed-cell">${Math.round(data.speed)} km/h</td><td><span class="status-badge status-en-route">En Route</span></td><td><a href="VRDS.php" class="btn btn-info btn-sm">View Dispatch</a></td>`;
+                newRow.addEventListener('click', () => { map.flyTo(newLatLng, 15); markers[tripId].openPopup(); });
                 trackingTableBody.appendChild(newRow);
             }
-        } else { // If marker and row exist, just update them
+        } else {
             markers[tripId].slideTo(newLatLng, { duration: 2000 });
+            markers[tripId].setIcon(getVehicleIcon(vehicle));
             if (tripRow) {
                 tripRow.querySelector('.location-cell').textContent = `${data.lat.toFixed(6)}, ${data.lng.toFixed(6)}`;
-                tripRow.querySelector('.speed-cell').textContent = `${data.speed} mph`;
+                tripRow.querySelector('.speed-cell').textContent = `${Math.round(data.speed)} km/h`;
                 tripRow.style.backgroundColor = 'var(--info-color)';
                 setTimeout(() => { tripRow.style.backgroundColor = ''; }, 1500);
             }
@@ -255,40 +307,17 @@ $users = $conn->query("SELECT id, username FROM users WHERE role = 'driver'");
     }
 
     function removeMarkerAndRow(tripId) {
-        console.log(`Removing marker and row for Trip ID: ${tripId}`);
         if (markers[tripId]) { map.removeLayer(markers[tripId]); delete markers[tripId]; }
         const tripRow = document.getElementById(`trip-row-${tripId}`);
         if (tripRow) { tripRow.remove(); }
-        // Show placeholder only if the table is truly empty
-        if (trackingTableBody.childElementCount === 0) {
-            trackingTableBody.appendChild(noTrackingPlaceholder);
-            noTrackingPlaceholder.style.display = '';
-        }
+        if (Object.keys(markers).length === 0) { noTrackingPlaceholder.style.display = ''; }
     }
     
-    function focusOnMarker(tripId) { if (markers[tripId]) { map.flyTo(markers[tripId].getLatLng(), 15); markers[tripId].openPopup(); } }
-
-    // This part for initial locations is now handled by the PHP loop directly into the HTML
-    // We just need to make sure the clickable event listeners are added to them
-    document.querySelectorAll('#tracking-table-body .clickable-row').forEach(row => {
-        row.addEventListener('click', () => focusOnMarker(row.dataset.tripid));
-    });
-
-    const initialLocations = <?php echo $initial_locations_json; ?>;
-    console.log("Initial locations from server:", initialLocations);
-    if (initialLocations.length > 0) {
-      initialLocations.forEach(loc => {
-        const popupContent = `<b>Vehicle:</b> ${loc.type} ${loc.model}<br><b>Driver:</b> ${loc.driver_name}`;
-        markers[loc.trip_id] = L.marker([loc.latitude, loc.longitude]).addTo(map).bindPopup(popupContent);
-        markers[loc.trip_id].options.duration = 2000; // for slideTo
-      });
-    }
-
+    // Listen for all live tracking data from Firebase
     const trackingRef = database.ref('live_tracking');
-    console.log("Setting up Firebase listeners at 'live_tracking' path...");
-    trackingRef.on('child_added', (snapshot) => { console.log("Firebase child_added:", snapshot.key); createOrUpdateMarkerAndRow(snapshot.key, snapshot.val()); });
-    trackingRef.on('child_changed', (snapshot) => { console.log("Firebase child_changed:", snapshot.key); createOrUpdateMarkerAndRow(snapshot.key, snapshot.val()); });
-    trackingRef.on('child_removed', (snapshot) => { console.log("Firebase child_removed:", snapshot.key); removeMarkerAndRow(snapshot.key); });
+    trackingRef.on('child_added', (snapshot) => createOrUpdateMarkerAndRow(snapshot.key, snapshot.val()));
+    trackingRef.on('child_changed', (snapshot) => createOrUpdateMarkerAndRow(snapshot.key, snapshot.val()));
+    trackingRef.on('child_removed', (snapshot) => removeMarkerAndRow(snapshot.key));
 </script>
 </body>
 </html>

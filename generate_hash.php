@@ -3,7 +3,7 @@
 // Gamitin ang file na ito para gumawa ng bagong password hash.
 
 // 1. Ilagay ang bagong password na gusto mo sa loob ng mga single quotes.
-$passwordToHash = 'renelpogi';
+$passwordToHash = 'reneladmin';
 
 // 2. I-save ang file na ito.
 // 3. Buksan ito sa iyong browser (e.g., http://localhost/slate/CODE FINAL 3/generate_hash.php)
